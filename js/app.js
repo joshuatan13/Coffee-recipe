@@ -10,7 +10,11 @@
   const KEY = "brewlog.v1";
 
   const DEFAULT_GEAR = {
-    grinders: ["1Zpresso J-Ultra", "Femobook A4Z"],
+    // grinders carry a grind scale/format, since values differ per grinder
+    grinders: [
+      { name: "1Zpresso J-Ultra", unit: "x.x.x" },
+      { name: "Femobook A4Z", unit: "x.x.x" },
+    ],
     espressoMachines: ["Gaggia E24"],
     baskets: ["BEP 2.0", "Pesado", "Panda concave"],
     brewers: ["Glass V60 Switch", "V60 Neo", "Orea O1 (plastic)", "Origami (ceramic)", "Cafe Deep 27"],
@@ -32,13 +36,40 @@
   let encSalt = null;     // Uint8Array salt (persisted inside the envelope)
   let encEnabled = false; // true when a passcode is set
 
+  function normGrinder(g) {
+    return typeof g === "string" ? { name: g, unit: "" } : { name: g.name || "", unit: g.unit || "" };
+  }
+
   function normalize(parsed) {
+    const gear = Object.assign(structuredClone(DEFAULT_GEAR), parsed.gear || {});
+    gear.grinders = (gear.grinders || []).map(normGrinder).filter((g) => g.name);
     return {
       beans: parsed.beans || [],
       espresso: parsed.espresso || [],
       pourover: parsed.pourover || [],
-      gear: Object.assign(structuredClone(DEFAULT_GEAR), parsed.gear || {}),
+      gear,
     };
+  }
+
+  // grinder helpers — names for dropdowns, unit/scale for grind hints
+  const grinderNames = () => DB.gear.grinders.map((g) => g.name);
+  const grinderUnit = (name) => {
+    const g = DB.gear.grinders.find((x) => x.name === name);
+    return g ? g.unit : "";
+  };
+  function grindPlaceholder(name) {
+    const u = name && grinderUnit(name);
+    return u ? `e.g. ${u}` : "grind setting";
+  }
+  function grindHintText(name) {
+    if (!name) return "Tip: pick a grinder to see its grind scale.";
+    const u = grinderUnit(name);
+    return u ? `${name} scale: ${u}` : `No scale set for ${name} — add one in Gear → Grinders.`;
+  }
+  function grindField(d) {
+    return `<div class="field"><label for="f_grindSetting">Grind setting</label>
+      <input type="text" id="f_grindSetting" data-f="grindSetting" value="${esc(d.grindSetting || "")}" placeholder="${esc(grindPlaceholder(d.grinder))}" />
+      <div class="hint" id="grindUnitHint">${esc(grindHintText(d.grinder))}</div></div>`;
   }
 
   function readRaw() {
@@ -615,8 +646,8 @@
       ${fText("title", "Recipe name", d.title, { placeholder: "Optional, e.g. 'Onyx Geometry shot'" })}
       ${beanOptions(d.beanId)}
       <details class="fieldset" open><summary>Equipment</summary><div class="fieldset-body">
-        ${fSelect("grinder", "Grinder", d.grinder, g.grinders, { allowBlank: true })}
-        ${fText("grindSetting", "Grind setting", d.grindSetting, { placeholder: "e.g. 1.8 / 25 clicks" })}
+        ${fSelect("grinder", "Grinder", d.grinder, grinderNames(), { allowBlank: true })}
+        ${grindField(d)}
         ${fSelect("machine", "Machine", d.machine, g.espressoMachines, { allowBlank: true })}
         ${fSelect("basket", "Basket", d.basket, g.baskets, { allowBlank: true })}
       </div></details>
@@ -653,8 +684,8 @@
       ${fText("title", "Recipe name", d.title, { placeholder: "Optional, e.g. 'Hoffmann V60 4:6'" })}
       ${beanOptions(d.beanId)}
       <details class="fieldset" open><summary>Equipment</summary><div class="fieldset-body">
-        ${fSelect("grinder", "Grinder", d.grinder, g.grinders, { allowBlank: true })}
-        ${fText("grindSetting", "Grind setting", d.grindSetting, { placeholder: "e.g. 3.2 / 60 clicks" })}
+        ${fSelect("grinder", "Grinder", d.grinder, grinderNames(), { allowBlank: true })}
+        ${grindField(d)}
         ${fSelect("brewer", "Brewer", d.brewer, g.brewers, { allowBlank: true })}
         ${fSelect("filter", "Filter paper", d.filter, g.filters, { allowBlank: true })}
       </div></details>
@@ -732,6 +763,18 @@
     form.querySelectorAll('[data-f="dose"],[data-f="yield"],[data-f="water"]').forEach((el) =>
       el.addEventListener("input", recompute)
     );
+
+    // grind hint follows the selected grinder's scale
+    const grinderSel = form.querySelector('[data-f="grinder"]');
+    if (grinderSel) {
+      grinderSel.addEventListener("change", () => {
+        const name = grinderSel.value;
+        const inp = $("#f_grindSetting");
+        if (inp) inp.placeholder = grindPlaceholder(name);
+        const hint = $("#grindUnitHint");
+        if (hint) hint.textContent = grindHintText(name);
+      });
+    }
 
     // stars
     const starWrap = $("#starInput");
@@ -876,6 +919,25 @@
 
   function renderGear() {
     const groups = GEAR_GROUPS.map((grp) => {
+      if (grp.key === "grinders") {
+        const rows = DB.gear.grinders.map((g, i) =>
+          `<div class="gear-item">
+            <span class="name">${esc(g.name)}</span>
+            <input class="grinder-unit" data-gunit-idx="${i}" value="${esc(g.unit)}" placeholder="scale e.g. x.x.x" aria-label="Grind scale" />
+            <button class="del" data-gear-del="grinders" data-idx="${i}" aria-label="Remove">🗑</button>
+          </div>`
+        ).join("");
+        return `<div class="gear-group">
+          <h3>${grp.icon} ${esc(grp.label)}</h3>
+          <p class="card-sub" style="margin:-4px 0 8px">Each grinder has its own grind scale (the format shown when logging recipes).</p>
+          ${rows || '<p class="card-sub">None yet.</p>'}
+          <div class="gear-add">
+            <input type="text" id="gearin_grinders" placeholder="Add grinder…" />
+            <input type="text" id="gearunit_grinders" placeholder="scale e.g. x.x.x" style="max-width:42%" />
+            <button data-gear-add="grinders">Add</button>
+          </div>
+        </div>`;
+      }
       const items = DB.gear[grp.key] || [];
       const rows = items.map((name, i) =>
         `<div class="gear-item"><span class="name">${esc(name)}</span>
@@ -926,11 +988,15 @@
       const addBtn = e.target.closest("[data-gear-add]");
       if (addBtn) {
         const key = addBtn.dataset.gearAdd;
-        const input = $("#gearin_" + key);
-        const val = input.value.trim();
+        const val = $("#gearin_" + key).value.trim();
         if (!val) return;
         DB.gear[key] = DB.gear[key] || [];
-        DB.gear[key].push(val);
+        if (key === "grinders") {
+          const unit = ($("#gearunit_grinders").value || "").trim();
+          DB.gear.grinders.push({ name: val, unit });
+        } else {
+          DB.gear[key].push(val);
+        }
         save();
         render();
         return;
@@ -952,6 +1018,14 @@
     });
     view.addEventListener("change", (e) => {
       if (e.target.id === "importFile" && e.target.files[0]) importData(e.target.files[0]);
+      // inline edit of a grinder's grind scale
+      if (e.target.matches("[data-gunit-idx]")) {
+        const idx = Number(e.target.dataset.gunitIdx);
+        if (DB.gear.grinders[idx]) {
+          DB.gear.grinders[idx].unit = e.target.value.trim();
+          save();
+        }
+      }
     });
     // submit gear add on Enter
     view.addEventListener("keydown", (e) => {
@@ -981,12 +1055,7 @@
       try {
         const data = JSON.parse(reader.result);
         if (!data || typeof data !== "object") throw new Error("bad");
-        DB = {
-          beans: data.beans || [],
-          espresso: data.espresso || [],
-          pourover: data.pourover || [],
-          gear: Object.assign(structuredClone(DEFAULT_GEAR), data.gear || {}),
-        };
+        DB = normalize(data);
         save();
         render();
         toast("Backup imported");

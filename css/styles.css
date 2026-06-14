@@ -452,6 +452,15 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 }
 .gear-item .name { flex: 1; }
 .gear-item .del { color: var(--danger); background: none; border: none; font-size: 1.2rem; cursor: pointer; }
+.gear-item .grinder-unit {
+  width: 110px; flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+}
 .gear-add { display: flex; gap: 8px; margin-top: 8px; }
 .gear-add input { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
 .gear-add button { padding: 10px 16px; border: none; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }

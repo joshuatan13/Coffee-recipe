@@ -47,9 +47,12 @@ can review everything you've tried with that coffee in one place.
 ## Gear
 
 The **Gear & Settings** tab manages the equipment lists that populate the
-recipe dropdowns. It comes pre-loaded with:
+recipe dropdowns. Each **grinder** also carries its own **grind scale/format**
+(e.g. `x.x.x`) — when you pick a grinder while logging a recipe, the grind-size
+field shows that grinder's scale as a hint, since grind values differ between
+grinders. It comes pre-loaded with:
 
-- **Grinders:** 1Zpresso J-Ultra, Femobook A4Z
+- **Grinders:** 1Zpresso J-Ultra (`x.x.x`), Femobook A4Z (`x.x.x`)
 - **Espresso machines:** Gaggia E24
 - **Pour over brewers:** Glass V60 Switch, V60 Neo, Orea O1 (plastic),
   Origami (ceramic), Cafe Deep 27
