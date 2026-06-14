@@ -973,7 +973,7 @@
       </div>
       <div class="settings-block">
         <h3>Your data</h3>
-        <p class="muted">${counts}. Everything is stored privately on this device.</p>
+        <p class="muted">${counts}. Stored privately on this device and kept through app updates. It doesn't sync across devices, so export a backup now and then (and before clearing your browser).</p>
         <button class="btn btn-ghost" id="exportBtn">Export backup (JSON)</button>
         <button class="btn btn-ghost" id="importBtn" style="margin-top:10px">Import backup</button>
         <input type="file" id="importFile" accept="application/json" hidden />
@@ -1264,6 +1264,11 @@
     // service worker
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    }
+
+    // ask the browser to keep our data (resist storage eviction)
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persisted().then((p) => { if (!p) navigator.storage.persist(); }).catch(() => {});
     }
   }
 
