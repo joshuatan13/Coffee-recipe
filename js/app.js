@@ -72,6 +72,116 @@
       <div class="hint" id="grindUnitHint">${esc(grindHintText(d.grinder))}</div></div>`;
   }
 
+  const roastOf = (beanId) => {
+    const b = DB.beans.find((x) => x.id === beanId);
+    return b ? b.roastLevel : "";
+  };
+
+  /* -------- recipe suggester: regress over the user's own logs -------- */
+  function computeSuggestion(kind, ctx) {
+    const list = (DB[kind] || []).filter((r) => r.id !== state.id);
+    const cands = list.map((rec) => {
+      let w = 1;
+      if (rec.dialedIn) w *= 4;                                   // perfected recipes count most
+      if (ctx.grinder && rec.grinder === ctx.grinder) w *= 2;
+      if (ctx.equip && (rec.machine === ctx.equip || rec.brewer === ctx.equip)) w *= 2;
+      const rr = roastOf(rec.beanId);
+      if (ctx.roast && rr && rr === ctx.roast) w *= 1.6;
+      w *= (rec.rating || 3) / 3;                                  // unrated treated as neutral
+      return { rec, w };
+    });
+
+    const out = { fields: {}, pours: null, meta: "" };
+    if (!cands.length) {
+      if (kind === "espresso") out.fields = { dose: "18", yield: "36", time: "28", temp: "93" };
+      else {
+        out.fields = { dose: "15", water: "250", temp: "94", bloomWater: "45", bloomTime: "45" };
+        out.pours = [
+          { water: "45", time: "0:00", temp: "94", note: "bloom" },
+          { water: "150", time: "0:45", temp: "94", note: "" },
+          { water: "250", time: "1:20", temp: "94", note: "" },
+        ];
+      }
+      out.meta = "Starting point — no past recipes yet.";
+      return out;
+    }
+
+    const r1 = (v) => (Math.round(v * 10) / 10).toString();
+    const r0 = (v) => Math.round(v).toString();
+    const rHalf = (v) => (Math.round(v * 2) / 2).toString();
+    const wavg = (field, round) => {
+      let sw = 0, s = 0;
+      cands.forEach((c) => { const v = parseFloat(c.rec[field]); if (!isNaN(v)) { s += v * c.w; sw += c.w; } });
+      return sw ? round(s / sw) : null;
+    };
+    const setIf = (k, v) => { if (v != null) out.fields[k] = v; };
+
+    if (kind === "espresso") {
+      setIf("dose", wavg("dose", r1)); setIf("yield", wavg("yield", r1));
+      setIf("time", wavg("time", r0)); setIf("temp", wavg("temp", rHalf));
+    } else {
+      setIf("dose", wavg("dose", r1)); setIf("water", wavg("water", r0));
+      setIf("temp", wavg("temp", rHalf));
+      setIf("bloomWater", wavg("bloomWater", r0)); setIf("bloomTime", wavg("bloomTime", r0));
+    }
+
+    // grind is grinder-specific: only borrow from same-grinder candidates
+    let grindNote = "";
+    if (ctx.grinder) {
+      const sg = cands.filter((c) => c.rec.grinder === ctx.grinder && c.rec.grindSetting).sort((a, b) => b.w - a.w);
+      if (sg.length) out.fields.grindSetting = sg[0].rec.grindSetting;
+      else grindNote = " (no past grind on this grinder yet — set it yourself)";
+    }
+
+    if (kind === "pourover") {
+      const wp = cands.filter((c) => c.rec.pours && c.rec.pours.length).sort((a, b) => b.w - a.w);
+      if (wp.length) {
+        const src = wp[0].rec;
+        let pours = src.pours.map(normPour).map((p) => Object.assign({}, p));
+        const sugW = parseFloat(out.fields.water), srcW = parseFloat(src.water);
+        if (sugW && srcW > 0) {
+          const k = sugW / srcW;
+          pours = pours.map((p) => { const w = parseFloat(p.water); return isNaN(w) ? p : Object.assign({}, p, { water: Math.round(w * k).toString() }); });
+        }
+        out.pours = pours;
+      }
+    }
+
+    const dialed = cands.filter((c) => c.rec.dialedIn).length;
+    const unit = kind === "espresso" ? "shot" : "brew";
+    out.meta = `Based on ${cands.length} past ${unit}${cands.length > 1 ? "s" : ""}${dialed ? `, incl. ${dialed} dialed-in` : ""}.${grindNote}`;
+    return out;
+  }
+
+  const currentFormVal = (name) => {
+    const el = document.querySelector(`#entryForm [data-f="${name}"]`);
+    return el ? el.value : "";
+  };
+
+  function applySuggestion() {
+    const kind = state.tab;
+    const grinder = currentFormVal("grinder");
+    const equip = kind === "espresso" ? currentFormVal("machine") : currentFormVal("brewer");
+    const sug = computeSuggestion(kind, { grinder, equip, roast: roastOf(currentFormVal("beanId")) });
+    Object.entries(sug.fields).forEach(([k, v]) => {
+      const el = document.querySelector(`#entryForm [data-f="${k}"]`);
+      if (el) el.value = v;
+    });
+    const ratioOut = $("#ratioOut");
+    if (ratioOut) {
+      const second = kind === "espresso" ? currentFormVal("yield") : currentFormVal("water");
+      ratioOut.textContent = ratio(currentFormVal("dose"), second);
+    }
+    const hint = $("#grindUnitHint"); if (hint) hint.textContent = grindHintText(grinder);
+    const gi = $("#f_grindSetting"); if (gi) gi.placeholder = grindPlaceholder(grinder);
+    if (kind === "pourover" && sug.pours) {
+      const list = $("#poursList");
+      if (list) { list.innerHTML = sug.pours.map(pourRowHtml).join(""); reindexPours(); }
+    }
+    const note = $("#suggestNote"); if (note) note.textContent = sug.meta;
+    toast("Recipe suggested");
+  }
+
   function readRaw() {
     try {
       const raw = localStorage.getItem(KEY);
@@ -356,6 +466,7 @@
 
   function recipeCard(r, kind, grouped) {
     const meta = [];
+    if (r.dialedIn) meta.push('<span class="tag dialed">✓ Dialed in</span>');
     const cfg = [r.grinder, kind === "espresso" ? r.machine : r.brewer, r.filter].filter(Boolean);
     cfg.forEach((c) => meta.push(`<span class="tag config">${esc(c)}</span>`));
     let key;
@@ -516,6 +627,7 @@
       <div class="detail-hero">
         <h2>${esc(r.title || beanName(r.beanId) || "Untitled recipe")} ${r.favorite ? '<span class="fav-mark">★</span>' : ""}</h2>
         ${r.beanId ? `<p class="sub">🫘 ${esc(beanName(r.beanId))}</p>` : ""}
+        ${r.dialedIn ? '<span class="tag dialed" style="margin-bottom:6px;display:inline-block">✓ Dialed in</span><br>' : ""}
         ${r.rating ? starsHtml(r.rating) : ""}
       </div>
       <div class="spec-grid">${specs}</div>
@@ -581,6 +693,11 @@
   function fFav(val) {
     return `<div class="field"><label class="chk-line" style="text-transform:none;display:flex;align-items:center;gap:10px;cursor:pointer">
       <input type="checkbox" data-f="favorite" ${val ? "checked" : ""} style="width:20px;height:20px"/> Mark as favorite ★</label></div>`;
+  }
+  function fCheck(name, label, val, note) {
+    return `<div class="field"><label class="chk-line" style="text-transform:none;display:flex;align-items:center;gap:10px;cursor:pointer">
+      <input type="checkbox" data-f="${name}" ${val ? "checked" : ""} style="width:20px;height:20px"/> ${esc(label)}</label>
+      ${note ? `<div class="hint">${esc(note)}</div>` : ""}</div>`;
   }
   function fRoast(val) {
     return `<div class="field"><label>Roast Level</label><div class="segmented" id="roastSeg">${
@@ -652,6 +769,8 @@
         ${fSelect("machine", "Machine", d.machine, g.espressoMachines, { allowBlank: true })}
         ${fSelect("basket", "Basket", d.basket, g.baskets, { allowBlank: true })}
       </div></details>
+      <button type="button" class="btn btn-ghost suggest-btn" id="suggestBtn">✨ Suggest a recipe from my logs</button>
+      <div class="hint" id="suggestNote" style="margin:6px 2px 14px"></div>
       <details class="fieldset" open><summary>Recipe</summary><div class="fieldset-body">
         <div class="row">
           ${fText("dose", "Dose (g)", d.dose, { type: "number", step: "0.1", inputmode: "decimal", placeholder: "18" })}
@@ -674,6 +793,7 @@
       ${fArea("tasting", "Tasting notes", d.tasting, "Sour? Bitter? Balanced? Flavors?")}
       ${fArea("improve", "What to improve next time", d.improve, "e.g. grind finer, +1°C, longer PI")}
       ${fArea("notes", "Other notes", d.notes, "")}
+      ${fCheck("dialedIn", "Dialed in — perfected recipe ✓", d.dialedIn, "Weighted most when suggesting recipes for new beans.")}
       ${fFav(d.favorite)}
       <button type="button" class="btn btn-primary" id="saveBtn">Save Recipe</button>
     </form>`;
@@ -690,6 +810,8 @@
         ${fSelect("brewer", "Brewer", d.brewer, g.brewers, { allowBlank: true })}
         ${fSelect("filter", "Filter paper", d.filter, g.filters, { allowBlank: true })}
       </div></details>
+      <button type="button" class="btn btn-ghost suggest-btn" id="suggestBtn">✨ Suggest a recipe from my logs</button>
+      <div class="hint" id="suggestNote" style="margin:6px 2px 14px"></div>
       <details class="fieldset" open><summary>Recipe</summary><div class="fieldset-body">
         <div class="row">
           ${fText("dose", "Dose (g)", d.dose, { type: "number", step: "0.1", inputmode: "decimal", placeholder: "15" })}
@@ -719,6 +841,7 @@
       ${fArea("tasting", "Tasting notes", d.tasting, "Clarity, acidity, sweetness, body…")}
       ${fArea("improve", "What to improve next time", d.improve, "e.g. coarser grind, slower pours")}
       ${fArea("notes", "Other notes", d.notes, "")}
+      ${fCheck("dialedIn", "Dialed in — perfected recipe ✓", d.dialedIn, "Weighted most when suggesting recipes for new beans.")}
       ${fFav(d.favorite)}
       <button type="button" class="btn btn-primary" id="saveBtn">Save Recipe</button>
     </form>`;
@@ -764,6 +887,10 @@
     form.querySelectorAll('[data-f="dose"],[data-f="yield"],[data-f="water"]').forEach((el) =>
       el.addEventListener("input", recompute)
     );
+
+    // suggest-a-recipe button
+    const suggestBtn = $("#suggestBtn");
+    if (suggestBtn) suggestBtn.addEventListener("click", applySuggestion);
 
     // grind hint follows the selected grinder's scale
     const grinderSel = form.querySelector('[data-f="grinder"]');

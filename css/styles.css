@@ -198,6 +198,9 @@ body {
 }
 .tag.roast { background: var(--bean); color: #fff; }
 .tag.config { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-soft); }
+.tag.dialed { background: var(--pourover); color: #fff; font-weight: 600; }
+
+.suggest-btn { margin-top: 0; border-style: dashed; border-color: var(--accent); color: var(--accent); }
 .fav-mark { color: var(--star); font-size: 1.1rem; }
 
 .stars { color: var(--star); letter-spacing: 2px; font-size: 0.95rem; white-space: nowrap; }

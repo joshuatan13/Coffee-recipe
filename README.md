@@ -44,6 +44,17 @@ log for the same coffee sits together. Each bean's detail page also lists all
 its espresso and pour over recipes — tap one to jump straight to it — so you
 can review everything you've tried with that coffee in one place.
 
+## Recipe suggester
+
+Mark any recipe you've perfected as **Dialed in ✓**. When starting a new
+recipe, pick a bean + grinder + brewer/machine and tap **✨ Suggest a recipe**:
+it proposes a starting point by weighting your past logs — dialed-in recipes
+count most, then matching grinder, matching brewer, matching roast level, and
+higher ratings. Grind size is only borrowed from recipes on the **same
+grinder** (since scales differ), and for pour over it also suggests a pour
+schedule scaled to the suggested water. With no history yet, it offers sensible
+defaults.
+
 ## Gear
 
 The **Gear & Settings** tab manages the equipment lists that populate the
