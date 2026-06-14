@@ -1,0 +1,46 @@
+name: Deploy to GitHub Pages
+
+# Deploys the static app to GitHub Pages on every push.
+# `configure-pages` with enablement:true turns Pages on automatically,
+# so no manual Settings toggle is needed.
+#
+# NOTE: GitHub Pages only deploys from the repository's DEFAULT branch.
+# This currently lists the working branch; if you later make `main` the
+# default branch, add it to the branches list below.
+
+on:
+  push:
+    branches:
+      - "claude/coffee-tracker-recipes-epg5i0"
+      - "main"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "."
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
