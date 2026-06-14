@@ -23,29 +23,76 @@
     gear: DEFAULT_GEAR,
   };
 
-  function load() {
+  // Web Crypto is only available in a secure context (https or localhost).
+  const SUBTLE = (typeof crypto !== "undefined" && crypto.subtle) ? crypto.subtle : null;
+
+  let DB = null;          // in-memory journal (null while locked)
+  let cryptoKey = null;   // derived AES key, held only in memory while unlocked
+  let encSalt = null;     // Uint8Array salt (persisted inside the envelope)
+  let encEnabled = false; // true when a passcode is set
+
+  function normalize(parsed) {
+    return {
+      beans: parsed.beans || [],
+      espresso: parsed.espresso || [],
+      pourover: parsed.pourover || [],
+      gear: Object.assign(structuredClone(DEFAULT_GEAR), parsed.gear || {}),
+    };
+  }
+
+  function readRaw() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (!raw) return structuredClone(DEFAULT_DATA);
-      const parsed = JSON.parse(raw);
-      // merge to be resilient to schema additions
-      return {
-        beans: parsed.beans || [],
-        espresso: parsed.espresso || [],
-        pourover: parsed.pourover || [],
-        gear: Object.assign(structuredClone(DEFAULT_GEAR), parsed.gear || {}),
-      };
+      return raw ? JSON.parse(raw) : null;
     } catch (e) {
-      console.error("Failed to load data", e);
-      return structuredClone(DEFAULT_DATA);
+      console.error("Failed to read storage", e);
+      return null;
     }
   }
 
+  // Plaintext writes are synchronous; encrypted writes are serialized so
+  // rapid saves can't race / interleave.
+  let saveChain = Promise.resolve();
   function save() {
+    if (encEnabled && cryptoKey) {
+      saveChain = saveChain.then(async () => {
+        const env = await encryptData(cryptoKey, DB, encSalt);
+        localStorage.setItem(KEY, JSON.stringify(env));
+      }).catch((e) => console.error("Persist failed", e));
+      return saveChain;
+    }
     localStorage.setItem(KEY, JSON.stringify(DB));
+    return Promise.resolve();
   }
 
-  let DB = load();
+  /* -------- passcode crypto (PBKDF2 + AES-GCM, fully client-side) -------- */
+  function b64(bytes) {
+    let s = "";
+    bytes.forEach((b) => (s += String.fromCharCode(b)));
+    return btoa(s);
+  }
+  function ub64(str) {
+    const bin = atob(str);
+    const a = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+    return a;
+  }
+  async function deriveKey(pass, salt) {
+    const base = await SUBTLE.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+    return SUBTLE.deriveKey(
+      { name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256" },
+      base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+    );
+  }
+  async function encryptData(key, obj, salt) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await SUBTLE.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(obj)));
+    return { __enc: 1, salt: b64(salt), iv: b64(iv), ct: b64(new Uint8Array(ct)) };
+  }
+  async function decryptData(key, env) {
+    const pt = await SUBTLE.decrypt({ name: "AES-GCM", iv: ub64(env.iv) }, key, ub64(env.ct));
+    return JSON.parse(new TextDecoder().decode(pt));
+  }
 
   /* ----------------------------- Helpers ---------------------------------- */
   const $ = (sel, el = document) => el.querySelector(sel);
@@ -776,6 +823,18 @@
       <p class="card-sub" style="margin-bottom:18px">Items here populate the dropdowns when logging recipes.</p>
       ${groups}
       <div class="settings-block">
+        <h3>🔒 Privacy lock</h3>
+        ${!SUBTLE
+          ? `<p class="muted">A passcode lock needs a secure connection. Open the hosted (https) site to enable it.</p>`
+          : encEnabled
+            ? `<p class="muted">Passcode is <b>on</b> — your journal is encrypted on this device and the app asks for it on open.</p>
+               <button class="btn btn-ghost" id="lockNowBtn">Lock now</button>
+               <button class="btn btn-ghost" id="changePassBtn" style="margin-top:10px">Change passcode</button>
+               <button class="btn btn-danger" id="removePassBtn" style="margin-top:10px">Remove passcode</button>`
+            : `<p class="muted">Set a passcode to lock the app and encrypt your journal on this device. Useful if someone else picks up your phone.</p>
+               <button class="btn btn-primary" id="setPassBtn">Set a passcode</button>`}
+      </div>
+      <div class="settings-block">
         <h3>Your data</h3>
         <p class="muted">${counts}. Everything is stored privately on this device.</p>
         <button class="btn btn-ghost" id="exportBtn">Export backup (JSON)</button>
@@ -812,6 +871,9 @@
       if (e.target.id === "exportBtn") exportData();
       if (e.target.id === "importBtn") $("#importFile").click();
       if (e.target.id === "clearBtn") clearData();
+      if (e.target.id === "setPassBtn" || e.target.id === "changePassBtn") showPasscodeSetup();
+      if (e.target.id === "removePassBtn") removePasscode();
+      if (e.target.id === "lockNowBtn") lockNow();
     });
     view.addEventListener("change", (e) => {
       if (e.target.id === "importFile" && e.target.files[0]) importData(e.target.files[0]);
@@ -863,9 +925,129 @@
   function clearData() {
     if (!confirm("Erase ALL beans, recipes and gear? This cannot be undone.")) return;
     DB = structuredClone(DEFAULT_DATA);
+    cryptoKey = null;
+    encSalt = null;
+    encEnabled = false;
+    localStorage.removeItem(KEY);
     save();
     toast("All data erased");
     go("beans", "list");
+  }
+
+  /* =========================================================================
+     PASSCODE LOCK
+     ========================================================================= */
+  function lockOverlay(inner) {
+    let ov = $("#lockOverlay");
+    if (!ov) {
+      ov = document.createElement("div");
+      ov.id = "lockOverlay";
+      ov.className = "lock-overlay";
+      document.body.appendChild(ov);
+    }
+    ov.innerHTML = `<div class="lock-card">${inner}</div>`;
+    return ov;
+  }
+  function closeLockOverlay() {
+    const ov = $("#lockOverlay");
+    if (ov) ov.remove();
+  }
+
+  // Shown at boot when storage is encrypted; gates the whole app.
+  function showLock(env) {
+    const ov = lockOverlay(`
+      <div class="lock-icon">☕🔒</div>
+      <h2>Brew Log</h2>
+      <p class="lock-sub">Enter your passcode</p>
+      <input type="password" id="lockInput" inputmode="text" autocomplete="current-password" autofocus />
+      <button class="btn btn-primary" id="lockBtn">Unlock</button>
+      <p class="lock-err" id="lockErr"></p>`);
+    const input = $("#lockInput", ov);
+    const err = $("#lockErr", ov);
+    const attempt = async () => {
+      err.textContent = "";
+      const pass = input.value;
+      if (!pass) return;
+      try {
+        const key = await deriveKey(pass, ub64(env.salt));
+        const data = await decryptData(key, env);
+        cryptoKey = key;
+        encSalt = ub64(env.salt);
+        encEnabled = true;
+        DB = normalize(data);
+        closeLockOverlay();
+        render();
+      } catch (e) {
+        err.textContent = "Wrong passcode — try again.";
+        input.value = "";
+        input.focus();
+      }
+    };
+    $("#lockBtn", ov).addEventListener("click", attempt);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") attempt(); });
+    setTimeout(() => input.focus(), 50);
+  }
+
+  // Set or change a passcode (called from settings while unlocked).
+  function showPasscodeSetup() {
+    const ov = lockOverlay(`
+      <div class="lock-icon">🔒</div>
+      <h2>${encEnabled ? "Change passcode" : "Set a passcode"}</h2>
+      <p class="lock-sub">This encrypts your journal on this device.</p>
+      <input type="password" id="p1" placeholder="New passcode" autocomplete="new-password" />
+      <input type="password" id="p2" placeholder="Confirm passcode" autocomplete="new-password" />
+      <p class="lock-warn">⚠︎ There's no recovery — if you forget it, the data can't be read. Keep a JSON backup (Export) just in case.</p>
+      <button class="btn btn-primary" id="passSaveBtn">Save</button>
+      <button class="btn btn-ghost" id="passCancelBtn">Cancel</button>
+      <p class="lock-err" id="passErr"></p>`);
+    const err = $("#passErr", ov);
+    $("#passCancelBtn", ov).addEventListener("click", closeLockOverlay);
+    $("#passSaveBtn", ov).addEventListener("click", async () => {
+      const p1 = $("#p1", ov).value, p2 = $("#p2", ov).value;
+      if (p1.length < 4) { err.textContent = "Use at least 4 characters."; return; }
+      if (p1 !== p2) { err.textContent = "Passcodes don't match."; return; }
+      encSalt = crypto.getRandomValues(new Uint8Array(16));
+      cryptoKey = await deriveKey(p1, encSalt);
+      encEnabled = true;
+      await save();
+      closeLockOverlay();
+      toast("Passcode set — journal encrypted");
+      render();
+    });
+  }
+
+  function removePasscode() {
+    if (!confirm("Remove the passcode? Your journal will be stored unencrypted on this device.")) return;
+    encEnabled = false;
+    cryptoKey = null;
+    encSalt = null;
+    save();
+    toast("Passcode removed");
+    render();
+  }
+
+  function lockNow() {
+    cryptoKey = null;
+    DB = null;
+    showLock(readRaw());
+  }
+
+  // Decide whether to show the app or the lock screen on startup.
+  function boot() {
+    const raw = readRaw();
+    if (raw && raw.__enc) {
+      encEnabled = true;
+      if (!SUBTLE) {
+        DB = structuredClone(DEFAULT_DATA); // can't decrypt without crypto; show empty rather than crash
+        lockOverlay(`<div class="lock-icon">🔒</div><h2>Locked</h2>
+          <p class="lock-sub">This journal is encrypted. Open the site over https to unlock it.</p>`);
+        return;
+      }
+      showLock(raw);
+      return;
+    }
+    DB = raw ? normalize(raw) : structuredClone(DEFAULT_DATA);
+    render();
   }
 
   /* =========================================================================
@@ -927,7 +1109,7 @@
     });
 
     wireGear();
-    render();
+    boot();
 
     // service worker
     if ("serviceWorker" in navigator) {
