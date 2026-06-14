@@ -298,6 +298,21 @@
 
   const ROAST_LEVELS = ["Light", "Light-Med", "Medium", "Med-Dark", "Dark"];
 
+  // suggestions for the origin / variety combo fields (free text still allowed)
+  const ORIGINS = [
+    "Ethiopia", "Kenya", "Colombia", "Brazil", "Guatemala", "Costa Rica", "Panama",
+    "Honduras", "El Salvador", "Nicaragua", "Rwanda", "Burundi", "Tanzania",
+    "Sumatra", "Java", "Sulawesi", "Yemen", "Peru", "Mexico", "Bolivia",
+    "Ecuador", "India", "Yunnan, China", "DR Congo", "Uganda",
+  ];
+  const VARIETIES = [
+    "Heirloom (Ethiopian Landrace)", "Typica", "Bourbon", "Yellow Bourbon", "Pink Bourbon",
+    "Caturra", "Catuai", "Geisha / Gesha", "SL28", "SL34", "Ruiru 11", "Batian",
+    "Pacamara", "Pacas", "Maragogipe", "Mundo Novo", "Castillo", "Colombia",
+    "Tabi", "Sidra", "Wush Wush", "Java", "Catimor", "Villa Sarchi", "Pache",
+  ];
+  const usedValues = (field) => [...new Set(DB.beans.map((b) => b[field]).filter(Boolean))];
+
   /* ----------------------------- App State -------------------------------- */
   const TABS = {
     beans: { label: "Beans", coll: "beans", singular: "Bean" },
@@ -682,6 +697,16 @@
         ${opts.step ? `step="${opts.step}"` : ""} ${opts.inputmode ? `inputmode="${opts.inputmode}"` : ""} />
       ${opts.hint ? `<div class="hint">${esc(opts.hint)}</div>` : ""}</div>`;
   }
+  // text input with autocomplete suggestions (your past values + common ones)
+  function fCombo(name, label, val, options, opts = {}) {
+    const id = "dl_" + name;
+    const list = [...new Set((options || []).filter(Boolean))];
+    return `<div class="field"><label for="f_${name}">${esc(label)}</label>
+      <input type="text" id="f_${name}" data-f="${name}" value="${esc(val == null ? "" : val)}" list="${id}" autocomplete="off"
+        ${opts.placeholder ? `placeholder="${esc(opts.placeholder)}"` : ""} />
+      <datalist id="${id}">${list.map((o) => `<option value="${esc(o)}"></option>`).join("")}</datalist>
+      ${opts.hint ? `<div class="hint">${esc(opts.hint)}</div>` : ""}</div>`;
+  }
   function fArea(name, label, val, ph) {
     return `<div class="field"><label for="f_${name}">${esc(label)}</label>
       <textarea id="f_${name}" data-f="${name}" placeholder="${esc(ph || "")}">${esc(val || "")}</textarea></div>`;
@@ -724,8 +749,8 @@
       ${fText("roaster", "Roaster", d.roaster, { placeholder: "e.g. Onyx, Sey, local roaster" })}
       ${fRoast(d.roastLevel)}
       <div class="row">
-        ${fText("origin", "Origin", d.origin, { placeholder: "Country / region" })}
-        ${fText("variety", "Variety", d.variety, { placeholder: "e.g. Gesha, Caturra" })}
+        ${fCombo("origin", "Origin", d.origin, [...usedValues("origin"), ...ORIGINS], { placeholder: "Country / region" })}
+        ${fCombo("variety", "Variety", d.variety, [...usedValues("variety"), ...VARIETIES], { placeholder: "e.g. Gesha, Caturra" })}
       </div>
       <div class="row">
         ${fSelect("type", "Type", d.type, ["Single Origin", "Blend"], { allowBlank: true })}
