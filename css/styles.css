@@ -123,6 +123,28 @@ body {
   color: var(--text-soft);
 }
 
+.backup-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+.backup-banner .bb-text { font-size: 0.86rem; color: var(--accent-dark); }
+.backup-banner .bb-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.backup-banner .bb-later {
+  background: none; border: none; color: var(--text-soft);
+  font-size: 0.86rem; cursor: pointer; padding: 6px 8px;
+}
+.backup-banner .bb-now {
+  background: var(--accent); color: #fff; border: none;
+  border-radius: 16px; padding: 6px 14px; font-size: 0.86rem; font-weight: 600; cursor: pointer;
+}
+
 .toolbar {
   display: flex;
   gap: 8px;

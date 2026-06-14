@@ -280,6 +280,7 @@
     const cards = items.length ? listBodyHtml(items) : emptyState(t);
 
     return `
+      ${backupBanner()}
       <div class="section-head">
         <h2>${esc(t.label)}</h2>
         <span class="count-pill">${items.length} ${items.length === 1 ? "entry" : "entries"}</span>
@@ -1038,16 +1039,62 @@
     });
   }
 
-  function exportData() {
-    const blob = new Blob([JSON.stringify(DB, null, 2)], { type: "application/json" });
+  /* -------- backups (share-sheet first) + gentle reminder -------- */
+  const BKEY = "brewlog.backup";
+  const BACKUP_THRESHOLD = 5; // new entries before we nudge
+  let backupDismissed = false;
+
+  function loadBackupMeta() {
+    try { return JSON.parse(localStorage.getItem(BKEY)) || { count: 0, at: 0 }; }
+    catch (e) { return { count: 0, at: 0 }; }
+  }
+  const totalEntries = () => DB.beans.length + DB.espresso.length + DB.pourover.length;
+  function markBackedUp() {
+    localStorage.setItem(BKEY, JSON.stringify({ count: totalEntries(), at: Date.now() }));
+    backupDismissed = false;
+  }
+  function backupDue() {
+    return totalEntries() - (loadBackupMeta().count || 0) >= BACKUP_THRESHOLD;
+  }
+
+  async function exportData() {
+    const json = JSON.stringify(DB, null, 2);
+    const fname = `brewlog-backup-${todayStr()}.json`;
+    // Prefer the native share sheet so the user picks where it goes.
+    try {
+      if (navigator.canShare) {
+        const file = new File([json], fname, { type: "application/json" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: "Brew Log backup" });
+          markBackedUp(); toast("Backed up"); render(); return;
+        }
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // user cancelled the share sheet
+    }
+    // Fallback: download the file.
+    const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `brewlog-backup-${todayStr()}.json`;
+    a.download = fname;
     a.click();
     URL.revokeObjectURL(url);
-    toast("Backup downloaded");
+    markBackedUp(); toast("Backup saved"); render();
   }
+
+  function backupBanner() {
+    if (state.tab === "gear" || backupDismissed || !backupDue()) return "";
+    const n = totalEntries() - (loadBackupMeta().count || 0);
+    return `<div class="backup-banner">
+      <span class="bb-text">☕ ${n} new ${n === 1 ? "entry" : "entries"} since your last backup.</span>
+      <span class="bb-actions">
+        <button class="bb-later" id="backupLaterBtn">Later</button>
+        <button class="bb-now" id="backupNowBtn">Back up</button>
+      </span>
+    </div>`;
+  }
+
 
   function importData(file) {
     const reader = new FileReader();
@@ -1057,6 +1104,7 @@
         if (!data || typeof data !== "object") throw new Error("bad");
         DB = normalize(data);
         save();
+        markBackedUp(); // imported data is effectively a fresh backup point
         render();
         toast("Backup imported");
       } catch (err) {
@@ -1244,6 +1292,9 @@
         go(state.tab, "detail", card.dataset.id);
         return;
       }
+      // backup reminder banner
+      if (e.target.id === "backupNowBtn") { exportData(); return; }
+      if (e.target.id === "backupLaterBtn") { backupDismissed = true; render(); return; }
       // list toolbar
       if (e.target.id === "favChip") { state.filterFav = !state.filterFav; render(); return; }
       // detail actions
