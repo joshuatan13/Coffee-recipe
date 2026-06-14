@@ -465,3 +465,47 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   transition: opacity 0.2s;
 }
 .toast.show { opacity: 1; }
+
+/* ---------- Lock / passcode overlay ---------- */
+.lock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--accent-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.lock-card {
+  width: 100%;
+  max-width: 320px;
+  text-align: center;
+  color: #fff;
+}
+.lock-card .lock-icon { font-size: 2.6rem; margin-bottom: 8px; }
+.lock-card h2 { margin: 0 0 4px; font-size: 1.5rem; }
+.lock-card .lock-sub { margin: 0 0 20px; color: rgba(255,255,255,0.7); font-size: 0.92rem; }
+.lock-card input[type=password] {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.95);
+  color: #2c2018;
+  font-size: 1.05rem;
+  margin-bottom: 12px;
+}
+.lock-card input:focus { outline: none; box-shadow: 0 0 0 3px rgba(192,138,85,0.6); }
+.lock-card .btn { margin-top: 4px; }
+.lock-card .btn-ghost { color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.3); }
+.lock-card .lock-warn {
+  font-size: 0.78rem;
+  color: var(--star);
+  background: rgba(0,0,0,0.2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 4px 0 14px;
+  text-align: left;
+}
+.lock-card .lock-err { color: #ff9a8a; font-size: 0.85rem; min-height: 1.2em; margin: 10px 0 0; }

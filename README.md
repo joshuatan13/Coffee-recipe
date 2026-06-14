@@ -51,6 +51,18 @@ recipe dropdowns. It comes pre-loaded with:
 Add or remove any of these freely. The Settings section also lets you
 **export/import a JSON backup** and erase all data.
 
+## Privacy & passcode lock
+
+Your journal lives **only in your browser on your device** — it's never sent to
+a server and never committed to this repo. Each visitor gets their own empty
+app, so nobody who finds the URL can see or change your data.
+
+For on-device privacy (e.g. someone picking up your phone), set a **passcode**
+in *Gear & Settings → Privacy lock*. It uses the Web Crypto API (PBKDF2 +
+AES-GCM) to **encrypt your journal at rest** — when locked, the stored data is
+unreadable without the passcode, and the app gates behind a lock screen on
+open. There's no recovery if you forget it, so keep a JSON backup (Export).
+
 ## Running it
 
 It's just static files — open `index.html` in any browser, or serve the folder:
