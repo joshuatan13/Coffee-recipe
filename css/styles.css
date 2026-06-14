@@ -181,6 +181,43 @@ body {
 .stars { color: var(--star); letter-spacing: 2px; font-size: 0.95rem; white-space: nowrap; }
 .stars .empty { color: var(--border); }
 
+/* recipe groups (by bean) */
+.recipe-group { margin-bottom: 18px; }
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 8px;
+  position: sticky;
+  top: calc(var(--safe-top) + 52px);
+  background: var(--bg);
+  z-index: 5;
+}
+.group-name { font-weight: 700; font-size: 1.02rem; }
+.group-count {
+  font-size: 0.75rem;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  border-radius: 12px;
+  padding: 2px 9px;
+}
+
+/* linked recipe rows on a bean's detail page */
+.linked-rec {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+.linked-rec:first-of-type { border-top: none; }
+.linked-rec:active { opacity: 0.6; }
+.lr-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lr-title { font-weight: 600; }
+.lr-key { font-size: 0.82rem; color: var(--text-soft); }
+
 .empty-state {
   text-align: center;
   color: var(--text-soft);

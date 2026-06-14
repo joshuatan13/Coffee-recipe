@@ -12,6 +12,7 @@
   const DEFAULT_GEAR = {
     grinders: ["1Zpresso J-Ultra", "Femobook A4Z"],
     espressoMachines: ["Gaggia E24"],
+    baskets: ["BEP 2.0", "Pesado", "Panda concave"],
     brewers: ["Glass V60 Switch", "V60 Neo", "Orea O1 (plastic)", "Origami (ceramic)", "Cafe Deep 27"],
     filters: ["Hario V60", "Cafec T90 (med-dark)"],
   };
@@ -245,14 +246,7 @@
         <button class="chip${state.filterFav ? " active" : ""}" id="favChip">★ Favorites</button>
       </div>`;
 
-    let cards;
-    if (!items.length) {
-      cards = emptyState(t);
-    } else if (state.tab === "beans") {
-      cards = items.map(beanCard).join("");
-    } else {
-      cards = items.map((r) => recipeCard(r, state.tab)).join("");
-    }
+    const cards = items.length ? listBodyHtml(items) : emptyState(t);
 
     return `
       <div class="section-head">
@@ -261,6 +255,41 @@
       </div>
       ${toolbar}
       <div id="listBody">${cards}</div>`;
+  }
+
+  // Beans render as a flat list; recipes are grouped by their linked bean so
+  // every log for the same bean sits together for easy review.
+  function listBodyHtml(items) {
+    if (state.tab === "beans") return items.map(beanCard).join("");
+    return groupedRecipeHtml(items, state.tab);
+  }
+
+  function groupedRecipeHtml(items, kind) {
+    const groups = new Map();
+    items.forEach((r) => {
+      const key = r.beanId || "__none__";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    });
+    const rank = (recs, key) => {
+      if (state.sort === "name") return key === "__none__" ? "￿" : (beanName(key) || "￿").toLowerCase();
+      if (state.sort === "rating") return -Math.max(...recs.map((x) => x.rating || 0));
+      return -Math.max(...recs.map((x) => x.updated || x.created || 0)); // recent
+    };
+    const ordered = [...groups.entries()].sort((a, b) => {
+      // recipes with no bean always sink to the bottom
+      if (a[0] === "__none__") return 1;
+      if (b[0] === "__none__") return -1;
+      const ra = rank(a[1], a[0]), rb = rank(b[1], b[0]);
+      return ra < rb ? -1 : ra > rb ? 1 : 0;
+    });
+    return ordered.map(([key, recs]) => {
+      const name = key === "__none__" ? "No bean linked" : (beanName(key) || "Unknown bean");
+      return `<div class="recipe-group">
+        <div class="group-head"><span class="group-name">🫘 ${esc(name)}</span><span class="group-count">${recs.length}</span></div>
+        ${recs.map((r) => recipeCard(r, kind, true)).join("")}
+      </div>`;
+    }).join("");
   }
 
   function emptyState(t) {
@@ -293,7 +322,7 @@
     </div>`;
   }
 
-  function recipeCard(r, kind) {
+  function recipeCard(r, kind, grouped) {
     const meta = [];
     const cfg = [r.grinder, kind === "espresso" ? r.machine : r.brewer, r.filter].filter(Boolean);
     cfg.forEach((c) => meta.push(`<span class="tag config">${esc(c)}</span>`));
@@ -311,7 +340,7 @@
         </div>
         ${r.rating ? starsHtml(r.rating) : ""}
       </div>
-      ${r.beanId && r.title ? `<p class="card-sub" style="margin-top:6px">🫘 ${esc(beanName(r.beanId))}</p>` : ""}
+      ${!grouped && r.beanId && r.title ? `<p class="card-sub" style="margin-top:6px">🫘 ${esc(beanName(r.beanId))}</p>` : ""}
       ${meta.length ? `<div class="card-meta">${meta.join("")}</div>` : ""}
     </div>`;
   }
@@ -366,7 +395,23 @@
       cupKeys.map(([k, v]) => `<div class="cup-bar"><span class="lbl">${k}</span><span class="track"><span class="fill" style="width:${(v / 10) * 100}%"></span></span><span class="num">${v}</span></div>`).join("")
     }</div></div>` : "";
 
-    const linked = [...DB.espresso, ...DB.pourover].filter((r) => r.beanId === b.id);
+    const linkedEsp = DB.espresso.filter((r) => r.beanId === b.id);
+    const linkedPo = DB.pourover.filter((r) => r.beanId === b.id);
+    const linkedSection = (title, recs, kind) => {
+      if (!recs.length) return "";
+      const rows = recs
+        .sort((a, c) => (c.updated || c.created || 0) - (a.updated || a.created || 0))
+        .map((r) => {
+          const key = kind === "espresso"
+            ? `${r.dose || "?"}→${r.yield || "?"}g · ${ratio(r.dose, r.yield)} · ${r.time || "?"}s`
+            : `${r.dose || "?"}:${r.water || "?"} · ${ratio(r.dose, r.water)}`;
+          return `<div class="linked-rec" data-rkind="${kind}" data-rid="${r.id}">
+            <div class="lr-main"><span class="lr-title">${esc(r.title || "Untitled recipe")}</span>
+            <span class="lr-key">${esc(key)}</span></div>
+            ${r.rating ? starsHtml(r.rating) : ""}</div>`;
+        }).join("");
+      return `<div class="note-block"><h3>${esc(title)} (${recs.length})</h3>${rows}</div>`;
+    };
 
     return `
       <div class="detail-hero">
@@ -389,7 +434,8 @@
       ${noteBlock("My Tasting Notes", b.myNotes)}
       ${cupBars}
       ${noteBlock("Experience & Observations", b.experience)}
-      ${linked.length ? `<div class="note-block"><h3>Recipes with this bean</h3><p>${linked.length} recipe${linked.length === 1 ? "" : "s"} logged.</p></div>` : ""}
+      ${linkedSection("Espresso recipes", linkedEsp, "espresso")}
+      ${linkedSection("Pour over recipes", linkedPo, "pourover")}
       ${detailActions()}`;
   }
 
@@ -564,7 +610,7 @@
         ${fSelect("grinder", "Grinder", d.grinder, g.grinders, { allowBlank: true })}
         ${fText("grindSetting", "Grind setting", d.grindSetting, { placeholder: "e.g. 1.8 / 25 clicks" })}
         ${fSelect("machine", "Machine", d.machine, g.espressoMachines, { allowBlank: true })}
-        ${fText("basket", "Basket", d.basket, { placeholder: "e.g. 18g VST / stock" })}
+        ${fSelect("basket", "Basket", d.basket, g.baskets, { allowBlank: true })}
       </div></details>
       <details class="fieldset" open><summary>Recipe</summary><div class="fieldset-body">
         <div class="row">
@@ -795,6 +841,7 @@
   const GEAR_GROUPS = [
     { key: "grinders", label: "Grinders", icon: "⚙︎" },
     { key: "espressoMachines", label: "Espresso Machines", icon: "☕" },
+    { key: "baskets", label: "Espresso Baskets", icon: "⚪" },
     { key: "brewers", label: "Pour Over Brewers", icon: "🫗" },
     { key: "filters", label: "Filter Papers", icon: "📄" },
   ];
@@ -1081,13 +1128,19 @@
       if (body) {
         const items = getItems();
         body.innerHTML = items.length
-          ? (state.tab === "beans" ? items.map(beanCard).join("") : items.map((r) => recipeCard(r, state.tab)).join(""))
+          ? listBodyHtml(items)
           : `<div class="empty-state"><p>No matches.</p></div>`;
       }
     });
 
     // delegated clicks within view
     $("#view").addEventListener("click", (e) => {
+      // tap a recipe listed on a bean's detail page -> jump to that recipe
+      const lr = e.target.closest("[data-rkind]");
+      if (lr) {
+        go(lr.dataset.rkind, "detail", lr.dataset.rid);
+        return;
+      }
       // list card -> detail
       const card = e.target.closest(".card");
       if (card && state.view === "list") {

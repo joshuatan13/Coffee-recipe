@@ -20,7 +20,8 @@ native app.
    - Free-form experience/observations for how a bean evolves
 
 2. **☕ Espresso** — per-setup shot recipes
-   - Grinder + grind setting, machine, basket
+   - Grinder + grind setting, machine, basket (BEP 2.0 / Pesado / Panda
+     concave presets, editable in Gear)
    - Dose → yield with **auto-calculated ratio**, shot time, temperature
    - Puck prep, pre-infusion, pressure, TDS/EY
    - Tasting notes + a dedicated **"what to improve next time"** field
@@ -36,6 +37,11 @@ Each recipe captures its **full equipment configuration**, so the same bean
 brewed on a V60 Switch vs. an Orea O1 are tracked as separate, comparable
 recipes. Use **Duplicate** on any recipe to clone it and tweak a single variable
 for your next experiment.
+
+Recipes are **grouped by bean** in the Espresso and Pour Over lists, so every
+log for the same coffee sits together. Each bean's detail page also lists all
+its espresso and pour over recipes — tap one to jump straight to it — so you
+can review everything you've tried with that coffee in one place.
 
 ## Gear
 
