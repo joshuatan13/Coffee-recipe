@@ -106,12 +106,18 @@
       return out;
     }
 
+    // If any recipes are marked dialed-in, regress over ONLY those — they are
+    // your perfected taste targets. Otherwise fall back to all past logs.
+    const dialedCands = cands.filter((c) => c.rec.dialedIn);
+    const usingDialed = dialedCands.length > 0;
+    const pool = usingDialed ? dialedCands : cands;
+
     const r1 = (v) => (Math.round(v * 10) / 10).toString();
     const r0 = (v) => Math.round(v).toString();
     const rHalf = (v) => (Math.round(v * 2) / 2).toString();
     const wavg = (field, round) => {
       let sw = 0, s = 0;
-      cands.forEach((c) => { const v = parseFloat(c.rec[field]); if (!isNaN(v)) { s += v * c.w; sw += c.w; } });
+      pool.forEach((c) => { const v = parseFloat(c.rec[field]); if (!isNaN(v)) { s += v * c.w; sw += c.w; } });
       return sw ? round(s / sw) : null;
     };
     const setIf = (k, v) => { if (v != null) out.fields[k] = v; };
@@ -128,13 +134,13 @@
     // grind is grinder-specific: only borrow from same-grinder candidates
     let grindNote = "";
     if (ctx.grinder) {
-      const sg = cands.filter((c) => c.rec.grinder === ctx.grinder && c.rec.grindSetting).sort((a, b) => b.w - a.w);
+      const sg = pool.filter((c) => c.rec.grinder === ctx.grinder && c.rec.grindSetting).sort((a, b) => b.w - a.w);
       if (sg.length) out.fields.grindSetting = sg[0].rec.grindSetting;
       else grindNote = " (no past grind on this grinder yet — set it yourself)";
     }
 
     if (kind === "pourover") {
-      const wp = cands.filter((c) => c.rec.pours && c.rec.pours.length).sort((a, b) => b.w - a.w);
+      const wp = pool.filter((c) => c.rec.pours && c.rec.pours.length).sort((a, b) => b.w - a.w);
       if (wp.length) {
         const src = wp[0].rec;
         let pours = src.pours.map(normPour).map((p) => Object.assign({}, p));
@@ -147,9 +153,11 @@
       }
     }
 
-    const dialed = cands.filter((c) => c.rec.dialedIn).length;
     const unit = kind === "espresso" ? "shot" : "brew";
-    out.meta = `Based on ${cands.length} past ${unit}${cands.length > 1 ? "s" : ""}${dialed ? `, incl. ${dialed} dialed-in` : ""}.${grindNote}`;
+    const plural = pool.length > 1 ? "s" : "";
+    out.meta = usingDialed
+      ? `Regressed from your ${pool.length} dialed-in ${unit}${plural}.${grindNote}`
+      : `Based on ${pool.length} past ${unit}${plural} (mark recipes “dialed in” to sharpen this).${grindNote}`;
     return out;
   }
 
