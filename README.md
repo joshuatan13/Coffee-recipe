@@ -84,6 +84,16 @@ AES-GCM) to **encrypt your journal at rest** — when locked, the stored data is
 unreadable without the passcode, and the app gates behind a lock screen on
 open. There's no recovery if you forget it, so keep a JSON backup (Export).
 
+## Google Drive sync (optional)
+
+*Gear & Settings → Google Drive sync* offers one-tap **Sync to Drive** and
+**Restore from Drive**, using the least-privilege `drive.file` scope — the app
+can only see the single backup file it creates, nothing else in your Drive.
+Google sign-in is loaded only when you tap Sync, so the app contacts Google
+solely when you choose to. Setup is a one-time, free Google OAuth Client ID
+(steps are in the app). This is the only feature that talks to an external
+service, and only to *your* Drive.
+
 ## Running it
 
 It's just static files — open `index.html` in any browser, or serve the folder:

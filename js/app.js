@@ -1084,6 +1084,105 @@
     go(state.tab, "list");
   }
 
+  /* -------- Google Drive sync (least-privilege drive.file scope) -------- */
+  const GKEY = "brewlog.gclient";   // user's OAuth client id
+  const GFILE = "brewlog.gfile";    // cached Drive file id
+  const GSYNC = "brewlog.gsync";    // last sync timestamp
+  const DRIVE_FILE_NAME = "brewlog-backup.json";
+  let gisPromise = null;
+
+  function loadGIS() {
+    if (window.google && window.google.accounts) return Promise.resolve();
+    if (gisPromise) return gisPromise;
+    gisPromise = new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://accounts.google.com/gsi/client";
+      s.async = true; s.defer = true;
+      s.onload = res;
+      s.onerror = () => rej(new Error("Couldn't load Google sign-in"));
+      document.head.appendChild(s);
+    });
+    return gisPromise;
+  }
+  function getDriveToken(clientId) {
+    return loadGIS().then(() => new Promise((res, rej) => {
+      const tc = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: "https://www.googleapis.com/auth/drive.file",
+        callback: (r) => (r && r.access_token ? res(r.access_token) : rej(new Error("No access token"))),
+        error_callback: (e) => rej(new Error((e && e.message) || "Sign-in cancelled")),
+      });
+      tc.requestAccessToken({ prompt: "" });
+    }));
+  }
+  async function driveFindFileId(token) {
+    const cached = localStorage.getItem(GFILE);
+    if (cached) return cached;
+    const q = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&spaces=drive&fields=files(id)`, {
+      headers: { Authorization: "Bearer " + token },
+    });
+    const j = await r.json();
+    if (j.files && j.files.length) { localStorage.setItem(GFILE, j.files[0].id); return j.files[0].id; }
+    return null;
+  }
+  async function driveSync() {
+    const clientId = (localStorage.getItem(GKEY) || "").trim();
+    if (!clientId) { toast("Add your Google Client ID first"); return; }
+    try {
+      toast("Connecting to Drive…");
+      const token = await getDriveToken(clientId);
+      const json = JSON.stringify(DB, null, 2);
+      let fileId = await driveFindFileId(token);
+      if (fileId) {
+        await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+          method: "PATCH",
+          headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+          body: json,
+        });
+      } else {
+        const boundary = "brewlog" + Date.now();
+        const meta = { name: DRIVE_FILE_NAME, mimeType: "application/json" };
+        const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${json}\r\n--${boundary}--`;
+        const r = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + token, "Content-Type": `multipart/related; boundary=${boundary}` },
+          body,
+        });
+        const j = await r.json();
+        if (j.id) localStorage.setItem(GFILE, j.id);
+      }
+      localStorage.setItem(GSYNC, Date.now().toString());
+      markBackedUp();
+      toast("Synced to Drive");
+      render();
+    } catch (e) {
+      toast(e.message || "Drive sync failed");
+    }
+  }
+  async function driveRestore() {
+    const clientId = (localStorage.getItem(GKEY) || "").trim();
+    if (!clientId) { toast("Add your Google Client ID first"); return; }
+    if (!confirm("Restore from Drive replaces the data on this device with your Drive backup. Continue?")) return;
+    try {
+      toast("Connecting to Drive…");
+      const token = await getDriveToken(clientId);
+      const fileId = await driveFindFileId(token);
+      if (!fileId) { toast("No backup found in Drive yet"); return; }
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { Authorization: "Bearer " + token },
+      });
+      const data = await r.json();
+      DB = normalize(data);
+      save();
+      markBackedUp();
+      render();
+      toast("Restored from Drive");
+    } catch (e) {
+      toast(e.message || "Restore failed");
+    }
+  }
+
   /* =========================================================================
      GEAR & SETTINGS
      ========================================================================= */
@@ -1150,6 +1249,24 @@
                <button class="btn btn-primary" id="setPassBtn">Set a passcode</button>`}
       </div>
       <div class="settings-block">
+        <h3>☁︎ Google Drive sync</h3>
+        <p class="muted">${localStorage.getItem(GSYNC) ? "Last synced " + fmtDate(new Date(Number(localStorage.getItem(GSYNC))).toISOString().slice(0, 10)) + "." : "One-tap backup to your own Drive. The app can only see the one backup file it creates."}</p>
+        <input type="text" id="gclientIn" placeholder="Google OAuth Client ID" value="${esc(localStorage.getItem(GKEY) || "")}"
+          style="width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);margin-bottom:10px" />
+        <button class="btn btn-primary" id="driveSyncBtn">Sync to Drive</button>
+        <button class="btn btn-ghost" id="driveRestoreBtn" style="margin-top:10px">Restore from Drive</button>
+        <details class="fieldset" style="margin-top:12px"><summary>How to get a Client ID (one time)</summary><div class="fieldset-body">
+          <ol class="muted" style="padding-left:18px;line-height:1.6">
+            <li>Open <b>console.cloud.google.com</b> → create a project.</li>
+            <li><b>APIs &amp; Services → Library</b> → enable <b>Google Drive API</b>.</li>
+            <li><b>OAuth consent screen</b> → External → add your email as a <b>Test user</b> (leave it in Testing).</li>
+            <li><b>Credentials → Create credentials → OAuth client ID → Web application</b>.</li>
+            <li>Under <b>Authorized JavaScript origins</b> add: <b>https://joshuatan13.github.io</b></li>
+            <li>Copy the <b>Client ID</b> and paste it above.</li>
+          </ol>
+        </div></details>
+      </div>
+      <div class="settings-block">
         <h3>Your data</h3>
         <p class="muted">${counts}. Stored privately on this device and kept through app updates. It doesn't sync across devices, so export a backup now and then (and before clearing your browser).</p>
         <button class="btn btn-ghost" id="exportBtn">Export backup (JSON)</button>
@@ -1190,12 +1307,15 @@
       if (e.target.id === "exportBtn") exportData();
       if (e.target.id === "importBtn") $("#importFile").click();
       if (e.target.id === "clearBtn") clearData();
+      if (e.target.id === "driveSyncBtn") driveSync();
+      if (e.target.id === "driveRestoreBtn") driveRestore();
       if (e.target.id === "setPassBtn" || e.target.id === "changePassBtn") showPasscodeSetup();
       if (e.target.id === "removePassBtn") removePasscode();
       if (e.target.id === "lockNowBtn") lockNow();
     });
     view.addEventListener("change", (e) => {
       if (e.target.id === "importFile" && e.target.files[0]) importData(e.target.files[0]);
+      if (e.target.id === "gclientIn") localStorage.setItem(GKEY, e.target.value.trim());
       // inline edit of a grinder's grind scale
       if (e.target.matches("[data-gunit-idx]")) {
         const idx = Number(e.target.dataset.gunitIdx);
