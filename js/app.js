@@ -468,7 +468,15 @@
 
     const pours = (r.pours && r.pours.length)
       ? `<div class="note-block"><h3>Pour Schedule</h3><ul class="pour-steps">${
-          r.pours.map((p, i) => `<li><span class="n">${i + 1}</span><span>${esc(p)}</span></li>`).join("")
+          r.pours.map((p, i) => {
+            const o = normPour(p);
+            const bits = [];
+            if (o.water) bits.push(`${esc(o.water)} g`);
+            if (o.time) bits.push(`@ ${esc(o.time)}`);
+            if (o.temp) bits.push(`${esc(o.temp)}°C`);
+            const main = bits.join(" · ") || "—";
+            return `<li><span class="n">${i + 1}</span><span class="ps-body"><span class="ps-main">${main}</span>${o.note ? `<span class="ps-note">${esc(o.note)}</span>` : ""}</span></li>`;
+          }).join("")
         }</ul></div>`
       : "";
 
@@ -661,7 +669,8 @@
           ${fText("bloomWater", "Bloom (g)", d.bloomWater, { type: "number", inputmode: "numeric", placeholder: "45" })}
         </div>
         ${fText("bloomTime", "Bloom time (s)", d.bloomTime, { type: "number", inputmode: "numeric", placeholder: "45" })}
-        <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-soft);margin:4px 0 6px;text-transform:uppercase;letter-spacing:0.4px">Pour schedule</label>
+        <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-soft);margin:4px 0 2px;text-transform:uppercase;letter-spacing:0.4px">Pour schedule</label>
+        <div class="hint" style="margin-bottom:8px">Per pour: target water · time · temperature, plus an optional note.</div>
         <div class="pours-list" id="poursList">${(d.pours || []).map(pourRowHtml).join("")}</div>
         <button type="button" class="btn-add-sm" id="addPour">+ Add pour</button>
       </div></details>
@@ -683,14 +692,28 @@
     </form>`;
   }
 
-  function pourRowHtml(val, i) {
-    return `<div class="pour-row"><span class="idx">${(i || 0) + 1}</span>
-      <input type="text" class="pour-input" value="${esc(val || "")}" placeholder="e.g. up to 150g, slow spiral @ 1:00" />
-      <button type="button" class="del" data-delpour>×</button></div>`;
+  // Pours may be legacy strings or structured {water,time,temp,note} objects.
+  function normPour(p) {
+    if (typeof p === "string") return { water: "", time: "", temp: "", note: p };
+    return Object.assign({ water: "", time: "", temp: "", note: "" }, p || {});
+  }
+
+  function pourRowHtml(p, i) {
+    const o = normPour(p);
+    return `<div class="pour-card">
+      <div class="pour-card-top">
+        <span class="idx">${(i || 0) + 1}</span>
+        <input type="text" class="pf" data-pf="water" inputmode="decimal" value="${esc(o.water)}" placeholder="to … g" aria-label="Water (g)" />
+        <input type="text" class="pf" data-pf="time" value="${esc(o.time)}" placeholder="@ 0:45" aria-label="Time" />
+        <input type="text" class="pf" data-pf="temp" inputmode="decimal" value="${esc(o.temp)}" placeholder="94°" aria-label="Temp (°C)" />
+        <button type="button" class="del" data-delpour aria-label="Remove pour">×</button>
+      </div>
+      <input type="text" class="pf pf-note" data-pf="note" value="${esc(o.note)}" placeholder="note — e.g. slow spiral, center pour" aria-label="Note" />
+    </div>`;
   }
 
   function reindexPours() {
-    document.querySelectorAll("#poursList .pour-row .idx").forEach((el, i) => (el.textContent = i + 1));
+    document.querySelectorAll("#poursList .pour-card .idx").forEach((el, i) => (el.textContent = i + 1));
   }
 
   // wire up interactive form bits ---------------------------------------
@@ -748,8 +771,8 @@
     if (addPour) {
       addPour.addEventListener("click", () => {
         const list = $("#poursList");
-        const count = list.querySelectorAll(".pour-row").length;
-        list.insertAdjacentHTML("beforeend", pourRowHtml("", count));
+        const count = list.querySelectorAll(".pour-card").length;
+        list.insertAdjacentHTML("beforeend", pourRowHtml({}, count));
         reindexPours();
       });
     }
@@ -757,7 +780,7 @@
     if (poursList) {
       poursList.addEventListener("click", (e) => {
         if (e.target.matches("[data-delpour]")) {
-          e.target.closest(".pour-row").remove();
+          e.target.closest(".pour-card").remove();
           reindexPours();
         }
       });
@@ -776,11 +799,16 @@
       cup[el.dataset.cup] = Number(el.value);
     });
     if (Object.keys(cup).length) d.cupping = cup;
-    // pours
+    // pours (structured: water / time / temp / note)
     const poursList = $("#poursList");
     if (poursList) {
-      d.pours = Array.from(poursList.querySelectorAll(".pour-input"))
-        .map((i) => i.value.trim()).filter(Boolean);
+      d.pours = Array.from(poursList.querySelectorAll(".pour-card"))
+        .map((card) => {
+          const o = {};
+          card.querySelectorAll("[data-pf]").forEach((inp) => (o[inp.dataset.pf] = inp.value.trim()));
+          return o;
+        })
+        .filter((o) => o.water || o.time || o.temp || o.note);
     }
     return d;
   }

@@ -322,21 +322,32 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 
 /* pour stages */
 .pours-list { margin-bottom: 8px; }
-.pour-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+.pour-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
   margin-bottom: 8px;
 }
-.pour-row .idx {
+.pour-card-top { display: flex; gap: 6px; align-items: center; }
+.pour-card-top .idx {
   width: 24px; height: 24px;
   border-radius: 50%;
   background: var(--pourover); color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-size: 0.8rem; flex: 0 0 auto;
 }
-.pour-row input { flex: 1; min-width: 0; padding: 9px 10px; }
-.pour-row .del { color: var(--danger); background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0 4px; }
+.pour-card .pf { min-width: 0; padding: 9px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 0.92rem; }
+.pour-card-top .pf[data-pf="water"] { flex: 1.3; }
+.pour-card-top .pf[data-pf="time"] { flex: 1; }
+.pour-card-top .pf[data-pf="temp"] { flex: 0.9; }
+.pour-card .pf-note { width: 100%; margin-top: 6px; }
+.pour-card .del { color: var(--danger); background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0 4px; flex: 0 0 auto; }
+
+/* detail pour steps */
+.pour-steps .ps-body { display: flex; flex-direction: column; gap: 1px; }
+.pour-steps .ps-main { font-weight: 600; }
+.pour-steps .ps-note { font-size: 0.83rem; color: var(--text-soft); }
 
 /* buttons */
 .btn {

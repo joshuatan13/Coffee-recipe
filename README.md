@@ -29,7 +29,8 @@ native app.
 3. **🫗 Pour Over** — per-setup brew recipes
    - Grinder + grind setting, brewer, filter paper
    - Dose : water with **auto ratio**, temperature, bloom (water + time)
-   - A **step-by-step pour schedule** you can add/remove pours from
+   - A **step-by-step pour schedule** where each pour records target water,
+     **time, and temperature**, plus an optional note (add/remove pours)
    - Agitation/technique, total brew time, drawdown, TDS/EY
    - Tasting notes + **"what to improve next time"**
 
