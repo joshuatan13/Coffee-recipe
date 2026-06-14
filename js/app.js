@@ -1447,9 +1447,25 @@
     wireGear();
     boot();
 
-    // service worker
+    // service worker — auto-update: reload once when a new version takes control
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("service-worker.js").catch(() => {});
+      let reloading = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloading) return;
+        reloading = true;
+        location.reload();
+      });
+      navigator.serviceWorker.register("service-worker.js").then((reg) => {
+        reg.update();
+        // if an updated worker is waiting, let it take over immediately
+        if (reg.waiting) reg.waiting.postMessage("skipWaiting");
+        reg.addEventListener("updatefound", () => {
+          const sw = reg.installing;
+          if (sw) sw.addEventListener("statechange", () => {
+            if (sw.state === "installed" && navigator.serviceWorker.controller) sw.postMessage("skipWaiting");
+          });
+        });
+      }).catch(() => {});
     }
 
     // ask the browser to keep our data (resist storage eviction)
