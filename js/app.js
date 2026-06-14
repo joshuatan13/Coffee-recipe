@@ -95,7 +95,7 @@
     if (!cands.length) {
       if (kind === "espresso") out.fields = { dose: "18", yield: "36", time: "28", temp: "93" };
       else {
-        out.fields = { dose: "15", water: "250", temp: "94", bloomWater: "45", bloomTime: "45" };
+        out.fields = { dose: "15", water: "250" };
         out.pours = [
           { water: "45", time: "0:00", temp: "94", note: "bloom" },
           { water: "150", time: "0:45", temp: "94", note: "" },
@@ -127,8 +127,6 @@
       setIf("time", wavg("time", r0)); setIf("temp", wavg("temp", rHalf));
     } else {
       setIf("dose", wavg("dose", r1)); setIf("water", wavg("water", r0));
-      setIf("temp", wavg("temp", rHalf));
-      setIf("bloomWater", wavg("bloomWater", r0)); setIf("bloomTime", wavg("bloomTime", r0));
     }
 
     // grind is grinder-specific: only borrow from same-grinder candidates
@@ -632,14 +630,21 @@
     }
     if (r.tds) specs += spec("TDS / EY", r.tds);
 
+    let prevT = null;
     const pours = (r.pours && r.pours.length)
       ? `<div class="note-block"><h3>Pour Schedule</h3><ul class="pour-steps">${
           r.pours.map((p, i) => {
             const o = normPour(p);
+            const t = parseTime(o.time);
             const bits = [];
+            if (o.time) {
+              let tt = `@ ${esc(o.time)}`;
+              if (t != null && prevT != null && t >= prevT) tt += ` <span class="ps-gap">(+${fmtSecs(t - prevT)})</span>`;
+              bits.push(tt);
+            }
             if (o.water) bits.push(`${esc(o.water)} g`);
-            if (o.time) bits.push(`@ ${esc(o.time)}`);
             if (o.temp) bits.push(`${esc(o.temp)}°C`);
+            if (t != null) prevT = t;
             const main = bits.join(" · ") || "—";
             return `<li><span class="n">${i + 1}</span><span class="ps-body"><span class="ps-main">${main}</span>${o.note ? `<span class="ps-note">${esc(o.note)}</span>` : ""}</span></li>`;
           }).join("")
@@ -851,13 +856,8 @@
           ${fText("water", "Water (g)", d.water, { type: "number", inputmode: "numeric", placeholder: "250" })}
         </div>
         <div class="computed">Ratio <span class="val" id="ratioOut">${ratio(d.dose, d.water)}</span></div>
-        <div class="row">
-          ${fText("temp", "Temp (°C)", d.temp, { type: "number", step: "0.5", inputmode: "decimal", placeholder: "94" })}
-          ${fText("bloomWater", "Bloom (g)", d.bloomWater, { type: "number", inputmode: "numeric", placeholder: "45" })}
-        </div>
-        ${fText("bloomTime", "Bloom time (s)", d.bloomTime, { type: "number", inputmode: "numeric", placeholder: "45" })}
         <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-soft);margin:4px 0 2px;text-transform:uppercase;letter-spacing:0.4px">Pour schedule</label>
-        <div class="hint" style="margin-bottom:8px">Per pour: target water · time · temperature, plus an optional note.</div>
+        <div class="hint" style="margin-bottom:8px">Each pour: cumulative time (left) · target water · temperature (right), plus a note. Your first pour is the bloom.</div>
         <div class="pours-list" id="poursList">${(d.pours || []).map(pourRowHtml).join("")}</div>
         <button type="button" class="btn-add-sm" id="addPour">+ Add pour</button>
       </div></details>
@@ -880,6 +880,21 @@
     </form>`;
   }
 
+  // parse "1:20" or "80" (seconds) -> seconds; format seconds -> "m:ss"
+  function parseTime(s) {
+    if (!s) return null;
+    s = String(s).trim();
+    const m = s.match(/^(\d+):(\d{1,2})$/);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    if (/^\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s));
+    return null;
+  }
+  function fmtSecs(t) {
+    if (t == null) return "";
+    const m = Math.floor(t / 60), s = t % 60;
+    return m + ":" + String(s).padStart(2, "0");
+  }
+
   // Pours may be legacy strings or structured {water,time,temp,note} objects.
   function normPour(p) {
     if (typeof p === "string") return { water: "", time: "", temp: "", note: p };
@@ -891,12 +906,12 @@
     return `<div class="pour-card">
       <div class="pour-card-top">
         <span class="idx">${(i || 0) + 1}</span>
+        <input type="text" class="pf" data-pf="time" value="${esc(o.time)}" placeholder="0:45" aria-label="Cumulative time" />
         <input type="text" class="pf" data-pf="water" inputmode="decimal" value="${esc(o.water)}" placeholder="to … g" aria-label="Water (g)" />
-        <input type="text" class="pf" data-pf="time" value="${esc(o.time)}" placeholder="@ 0:45" aria-label="Time" />
         <input type="text" class="pf" data-pf="temp" inputmode="decimal" value="${esc(o.temp)}" placeholder="94°" aria-label="Temp (°C)" />
         <button type="button" class="del" data-delpour aria-label="Remove pour">×</button>
       </div>
-      <input type="text" class="pf pf-note" data-pf="note" value="${esc(o.note)}" placeholder="note — e.g. slow spiral, center pour" aria-label="Note" />
+      <input type="text" class="pf pf-note" data-pf="note" value="${esc(o.note)}" placeholder="note — e.g. bloom, slow spiral" aria-label="Note" />
     </div>`;
   }
 
@@ -975,8 +990,10 @@
     if (addPour) {
       addPour.addEventListener("click", () => {
         const list = $("#poursList");
-        const count = list.querySelectorAll(".pour-card").length;
-        list.insertAdjacentHTML("beforeend", pourRowHtml({}, count));
+        const cards = list.querySelectorAll(".pour-card");
+        // carry the previous pour's temperature forward (constant-temp brews)
+        const lastTemp = cards.length ? (cards[cards.length - 1].querySelector('[data-pf="temp"]').value || "") : "";
+        list.insertAdjacentHTML("beforeend", pourRowHtml({ temp: lastTemp }, cards.length));
         reindexPours();
       });
     }

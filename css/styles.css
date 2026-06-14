@@ -464,6 +464,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .pour-steps .ps-body { display: flex; flex-direction: column; gap: 1px; }
 .pour-steps .ps-main { font-weight: 600; }
 .pour-steps .ps-note { font-size: 0.84rem; color: var(--text-soft); }
+.pour-steps .ps-gap { color: var(--pourover); font-weight: 600; }
 
 .cup-bars { margin-bottom: 6px; }
 .cup-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
